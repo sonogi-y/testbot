@@ -379,12 +379,13 @@ def handle_postback(event):
                 ]
             )
 
-    elif event.postback.data is in ['喫煙所１', '喫煙所２', '喫煙所３', '喫煙所４', '喫煙所５']:
+    elif event.postback.data == '喫煙所１' or event.postback.data == '喫煙所２' or event.postback.data == '喫煙所３'\
+            or event.postback.data == '喫煙所４' or event.postback.data == '喫煙所５':
         line_bot_api.reply_message(
                 event.reply_token,
                 [
                     TextSendMessage(text="喫煙はほどほどにね。行ってらっしゃい〜！"),
-¥                ]
+                ]
             )
 
 
