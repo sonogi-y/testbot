@@ -3,6 +3,7 @@ import psycopg2
 import re
 import pandas as pd
 import codecs
+import urllib
 
 from flask import Flask, request, abort
 from linebot import (
@@ -16,7 +17,7 @@ from linebot.models import (
     SourceUser, SourceGroup, SourceRoom,
     TemplateSendMessage, ConfirmTemplate, MessageAction,
     ButtonsTemplate, ImageCarouselTemplate, ImageCarouselColumn, URIAction,
-    PostbackAction, DatetimePickerAction,
+    PostbackAction, DatetimePickerAction,URITemplateAction,
     CameraAction, CameraRollAction, LocationAction,
     CarouselTemplate, CarouselColumn, PostbackEvent,
     StickerMessage, StickerSendMessage, LocationMessage, LocationSendMessage,
@@ -24,8 +25,8 @@ from linebot.models import (
     UnfollowEvent, FollowEvent, JoinEvent, LeaveEvent, BeaconEvent,
     FlexSendMessage, BubbleContainer, ImageComponent, BoxComponent,
     TextComponent, SpacerComponent, IconComponent, ButtonComponent,AudioMessage,
-    ImageMessage, ImageSendMessage,
-    SeparatorComponent, QuickReply, QuickReplyButton, PostbackTemplateAction,DatetimePickerTemplateAction
+    ImageMessage, ImageSendMessage,ImagemapArea,ImagemapSendMessage, BaseSize,
+    SeparatorComponent, QuickReply, QuickReplyButton, PostbackTemplateAction,DatetimePickerTemplateAction, MessageImagemapAction
 )
 
 from datetime import datetime
@@ -56,7 +57,9 @@ server = "ec2-54-225-116-36.compute-1.amazonaws.com"
 port = "5432"
 db = "d7oufjjv1lc0u3"
 
+
 conn = psycopg2.connect("host=" + server + " port=" + port + " dbname=" + db + " user=" + user + " password=" + pwd)
+#conn = psycopg2.connect(dbname = "sonogi-y")
 conn.rollback()
 #conn = MySQLdb.connect(user=REMOTE_DB_USER, passwd=REMOTE_DB_PASS, host=REMOTE_HOST, db=REMOTE_DB_NAME)
 c = conn.cursor()
@@ -88,7 +91,18 @@ def message_text(event):
         TextSendMessage(text=msg)
     )
 """
-
+"""
+@app.route("/imagemap/<path:url>/<size>")
+def imagemap(url, size):
+    map_image_url = urllib.parse.unquote(url)
+    response = requests.get(map_image_url)
+    img = Image.open(BytesIO(response.content))
+    img_resize = img.resize((int(size), int(size)))
+    byte_io = BytesIO()
+    img_resize.save(byte_io, 'PNG')
+    byte_io.seek(0)
+    return send_file(byte_io, mimetype='image/png')
+"""
 
 @handler.add(MessageEvent, message=TextMessage)
 def on_messaging(event):
@@ -156,26 +170,64 @@ def handle_location(event):
     text = event.message.address
     user_id = event.source.user_id
     line_bot_api.reply_message(
-            event.reply_token, TextSendMessage(text="こちらが結果です！"))
-
+            event.reply_token, TextSendMessage(text="近い順番に表示しています！"))
+    """
+    lat = event.message.latitude
+    lon = event.message.longitude
+    zoomlevel = 18
+    imagesize = 1040
+    # (2)
+    map_image_url = 'https://maps.googleapis.com/maps/api/staticmap?center={},{}&zoom={}&size=520x520&scale=2&maptype=roadmap&key={}'.format(lat, lon, zoomlevel, 'AIzaSyDL-0yqSdsy-MkmJ8CbNjGRaHFVGbGw5sI')
+    map_image_url += '&markers=color:{}|label:{}|{},{}'.format('blue', '', lat, lon)
+    # (3)
+    actions = [
+        MessageImagemapAction(
+            text = 'テスト',
+            area = ImagemapArea(
+                x = 0,
+                y = 0,
+                width = 1040,
+                height = 1040
+        )
+    )]
+    line_bot_api.reply_message(
+        event.reply_token,
+        [
+            ImagemapSendMessage(
+                base_url = 'https://{}/imagemap/{}'.format(request.host, urllib.parse.quote_plus(map_image_url)),
+                alt_text = '地図',
+                # (4)
+                base_size = BaseSize(height=imagesize, width=imagesize),
+                actions = actions
+            )
+        ]
+    )
+    """
     carousel_columns = [
     CarouselColumn(
         text=value,
         title=key,
         actions=[
-            PostbackTemplateAction(
+            #PostbackTemplateAction(
+            URITemplateAction(
                 label='ここにする',
-                data=key
+                #data=key,
+                uri=address
             ),
             #PostbackTemplateAction(
             #    label='OFF',
             #    data=value+'0'
             #)
         ]
-    ) for key, value in (
+    ) for key, value, address in (
         zip(
             ('喫煙所１', '喫煙所２', '喫煙所３', '喫煙所４', '喫煙所５'),
-            ('喫煙所１の住所', '喫煙所2の住所', '喫煙所3の住所', '喫煙所4の住所', '喫煙所5の住所')
+            ('喫煙所１の住所', '喫煙所2の住所', '喫煙所3の住所', '喫煙所4の住所', '喫煙所5の住所'),
+            ('https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
+                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
+                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
+                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
+                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85')
         )
     )
     ]
@@ -196,6 +248,11 @@ def handle_postback(event):
     user_id = event.source.user_id
 
     if event.postback.data == 'no':
+        sql = "delete from " +  REMOTE_DB_TB +  " where user_id='"+str(user_id)+"';"
+        c.execute(sql)
+        conn.commit()
+
+
         line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
@@ -222,7 +279,7 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text='普通タバコですか？電子タバコですか？',
+                text='今の気分をお伺いします！普通タバコですか？電子タバコですか？',
                 quick_reply=QuickReply(
                     items=[
                     QuickReplyButton(
@@ -245,7 +302,27 @@ def handle_postback(event):
                         action=PostbackAction(label="喫煙所", data="smoking_area")
                     ),
                     QuickReplyButton(
-                        action=PostbackAction(label="カフェ", data="cafe")
+                        action=PostbackAction(label="カフェ・レストラン", data="cafe")
+                    ),
+                    QuickReplyButton(
+                        action=PostbackAction(label="バー・居酒屋", data="bar"),
+                    )
+                ])))
+    elif event.postback.data == "smoking_area" or event.postback.data == "cafe" or event.postback.data == "bar":
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text='喫煙所ですか？カフェですか？',
+                quick_reply=QuickReply(
+                    items=[
+                    QuickReplyButton(
+                        action=PostbackAction(label="分煙", data="separated")
+                    ),
+                    QuickReplyButton(
+                        action=PostbackAction(label="席で吸える", data="table")
+                    ),
+                    QuickReplyButton(
+                        action=PostbackAction(label="外で吸える", data="outdoor"),
                     )
                 ])))
 
@@ -341,7 +418,7 @@ def handle_postback(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                text='普通タバコですか？電子タバコですか？',
+                text='今の気分をお伺いします！普通タバコですか？電子タバコですか？',
                 quick_reply=QuickReply(
                     items=[
                     QuickReplyButton(
@@ -361,7 +438,7 @@ def handle_postback(event):
             event.reply_token, TextSendMessage(text="ごめんなさい。未成年の方はご利用いただけません。"))
 
 
-    elif event.postback.data == 'smoking_area' or event.postback.data == "cafe":        
+    elif event.postback.data == 'separated' or event.postback.data == "table" or event.postback.data == "outdoor":        
         buttons_template = ButtonsTemplate(title="お近くで喫煙できる場所をお探しします！", \
             #（ここでトピックに合わせて、ある程度用意した定型文を投げる）
             text='現在地を教えていただけますか？', \
@@ -381,9 +458,11 @@ def handle_postback(event):
 
     elif event.postback.data == '喫煙所１' or event.postback.data == '喫煙所２' or event.postback.data == '喫煙所３'\
             or event.postback.data == '喫煙所４' or event.postback.data == '喫煙所５':
+
         line_bot_api.reply_message(
                 event.reply_token,
                 [
+                    #TextSendMessage(text='https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85'),
                     TextSendMessage(text="喫煙はほどほどにね。行ってらっしゃい〜！"),
                 ]
             )
