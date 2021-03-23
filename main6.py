@@ -4,6 +4,11 @@ import re
 import pandas as pd
 import codecs
 import urllib
+import datetime
+from geopy.distance import geodesic
+import requests
+import json
+
 
 from flask import Flask, request, abort
 from linebot import (
@@ -29,8 +34,9 @@ from linebot.models import (
     SeparatorComponent, QuickReply, QuickReplyButton, PostbackTemplateAction,DatetimePickerTemplateAction, MessageImagemapAction
 )
 
-from datetime import datetime
+#from datetime import datetime
 from search import best_renkei, show_carousel, date_pick
+#from test_smoking import search_area
 
      
 
@@ -45,10 +51,6 @@ handler = WebhookHandler(YOUR_CHANNEL_SECRET)
 app = Flask(__name__)
 
 
-gobi = {
-    "old" : "です",
-    "young" : "だよ"
-}
 
 #DB情報
 user = "cwlrjhcaaiuokb"
@@ -66,6 +68,7 @@ c = conn.cursor()
 REMOTE_DB_TB = "user_info3"
 REMOTE_DB_TB2 = "smoking"
 REMOTE_DB_TB3 = "user_visit"
+REMOTE_DB_TB4 = "basic_info"
 #REMOTE_DB_TB3 = "soudan_info"
 #REMOTE_DB_TB4 = "renkei"
 #REMOTE_DB_TB5 = "postalcode"
@@ -84,26 +87,10 @@ def callback():
         abort(400)
     return 'OK'
 
-"""
-@handler.add(MessageEvent, message=TextMessage)
-def message_text(event):
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=msg)
-    )
-"""
-"""
-@app.route("/imagemap/<path:url>/<size>")
-def imagemap(url, size):
-    map_image_url = urllib.parse.unquote(url)
-    response = requests.get(map_image_url)
-    img = Image.open(BytesIO(response.content))
-    img_resize = img.resize((int(size), int(size)))
-    byte_io = BytesIO()
-    img_resize.save(byte_io, 'PNG')
-    byte_io.seek(0)
-    return send_file(byte_io, mimetype='image/png')
-"""
+
+#######################################################
+
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def on_messaging(event):
@@ -136,9 +123,13 @@ def on_messaging(event):
                 c.execute(sql_status)
                 ret_status = c.fetchall()
                 #status=str(int(ret_status[0][0])+1)
+                dt_now = str(datetime.datetime.now())[0:10]
                 ret_df = pd.DataFrame(ret_status)
-                today = str(max(ret_df[1]))[0:10]
-                status = len([str(i) for i in ret_df[1] if today in str(i)])+1
+                latest = str(max(ret_df[1]))[0:10]
+                if dt_now == latest:
+                    status = len([str(i) for i in ret_df[1] if latest in str(i)])+1
+                elif dt_now != latest:
+                    status = 1
                 #status = str(len(ret_status)+1)
                 #sql="update "+REMOTE_DB_TB+ " set status = '"+str(status)+"' WHERE user_id = '"+str(user_id)+"';"
 
@@ -170,6 +161,12 @@ def on_messaging(event):
 
 
 
+
+#######################################################
+
+
+
+
 @handler.add(MessageEvent, message=LocationMessage)
 def handle_location(event):
     text = event.message.address
@@ -192,40 +189,37 @@ def handle_location(event):
     c.execute(sql)
     conn.commit()
 
+    #smoking_areas = search_area(text)
+
     line_bot_api.reply_message(
             event.reply_token, TextSendMessage(text="近い順番に表示しています！"))
-    """
-    lat = event.message.latitude
-    lon = event.message.longitude
-    zoomlevel = 18
-    imagesize = 1040
-    # (2)
-    map_image_url = 'https://maps.googleapis.com/maps/api/staticmap?center={},{}&zoom={}&size=520x520&scale=2&maptype=roadmap&key={}'.format(lat, lon, zoomlevel, 'AIzaSyDL-0yqSdsy-MkmJ8CbNjGRaHFVGbGw5sI')
-    map_image_url += '&markers=color:{}|label:{}|{},{}'.format('blue', '', lat, lon)
-    # (3)
-    actions = [
-        MessageImagemapAction(
-            text = 'テスト',
-            area = ImagemapArea(
-                x = 0,
-                y = 0,
-                width = 1040,
-                height = 1040
-        )
-    )]
-    line_bot_api.reply_message(
-        event.reply_token,
-        [
-            ImagemapSendMessage(
-                base_url = 'https://{}/imagemap/{}'.format(request.host, urllib.parse.quote_plus(map_image_url)),
-                alt_text = '地図',
-                # (4)
-                base_size = BaseSize(height=imagesize, width=imagesize),
-                actions = actions
-            )
-        ]
-    )
-    """
+
+    sql = "select * from "+ REMOTE_DB_TB4+";"
+    c.execute(sql)
+    ret = c.fetchall()
+    ret_df = pd.DataFrame(ret)
+
+    dis_d = {}
+    hr_d = {}
+    dest_d = {}
+    # (緯度, 経度)
+    for n, h, lt, ln  in zip(ret_df[0], ret_df[1], ret_df[2], ret_df[3]):
+        dest = (float(lt), float(ln))
+        yourlocation = (lat, lon)
+        destination = dest
+
+        dis = geodesic(yourlocation, destination).km
+
+        #print(dis)
+        dis_d.update({n:dis})
+        hr_d.update({n:h})
+        dest_d.update({n:dest})
+
+        # 267.9938255019848
+    dis_d_sorted = sorted(dis_d.items(), key=lambda x:x[1])
+    dis_d_top5 = dict(dis_d_sorted[0:5])
+    dest_d_top5 = [dest_d[i] for i in dis_d_top5.keys()]
+
     carousel_columns = [
     CarouselColumn(
         text=value,
@@ -237,20 +231,25 @@ def handle_location(event):
                 #data=key,
                 uri=address
             ),
-            #PostbackTemplateAction(
-            #    label='OFF',
-            #    data=value+'0'
-            #)
+            PostbackTemplateAction(
+                label='slackに通知する',
+                data="slacking"
+            )
         ]
     ) for key, value, address in (
         zip(
-            ('喫煙所１', '喫煙所２', '喫煙所３', '喫煙所４', '喫煙所５'),
-            ('喫煙所１の住所', '喫煙所2の住所', '喫煙所3の住所', '喫煙所4の住所', '喫煙所5の住所'),
-            ('https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
-                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
-                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
-                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85',\
-                'https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85')
+            #('喫煙所１', '喫煙所２', '喫煙所３', '喫煙所４', '喫煙所５'),
+            #smoking_areas,
+            #('喫煙所１の住所', '喫煙所2の住所', '喫煙所3の住所', '喫煙所4の住所', '喫煙所5の住所'),
+            list(dis_d_top5.keys()),
+            [hr_d[i] for i in list(dis_d_top5.keys())],
+            ("https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[0][0])+","+str(dest_d_top5[0][1]),\
+             #"comgooglemaps://?saddr=新宿駅&daddr=35.658581,139.745433",\
+                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[1][0])+","+str(dest_d_top5[1][1]),\
+                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[2][0])+","+str(dest_d_top5[2][1]),\
+                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[3][0])+","+str(dest_d_top5[3][1]),\
+                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[4][0])+","+str(dest_d_top5[4][1]),
+            )
         )
     )
     ]
@@ -259,6 +258,13 @@ def handle_location(event):
         to=user_id,
         messages=TemplateSendMessage(alt_text='carousel template', template=message_template)
     )
+
+
+
+#######################################################
+
+
+
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
@@ -269,6 +275,8 @@ def handle_postback(event):
     回答の投稿。
     """
     user_id = event.source.user_id
+    profiles = line_bot_api.get_profile(user_id=user_id)
+    display_name = profiles.display_name
 
     if event.postback.data == 'no':
         sql = "delete from " +  REMOTE_DB_TB +  " where user_id='"+str(user_id)+"';"
@@ -503,30 +511,17 @@ def handle_postback(event):
                     TextSendMessage(text='line://nv/location'),
                 ]
             )
+    elif event.postback.data == "slacking":
+        # webhookURLを指定
+        webhook_url = "https://hooks.slack.com/services/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"
 
-    elif event.postback.data == '喫煙所１' or event.postback.data == '喫煙所２' or event.postback.data == '喫煙所３'\
-            or event.postback.data == '喫煙所４' or event.postback.data == '喫煙所５':
-    #elif event.postback.label == "ここにする":
-        choice = event.postback.data
+        # 送信するテキストを定義
 
-        sql = "select MAX(date) from "+REMOTE_DB_TB3+ " WHERE user_id = '"+str(user_id)+"';"
-        c.execute(sql)
-        ret = c.fetchall()
-        latest = str(ret[0][0])
+        # Slackに送信する
+        requests.post(webhook_url, data = json.dumps({
+            "text": display_name+"が今からタバコすいます"
+        }));
 
-        preference1 = event.postback.data
-        sql="update "+REMOTE_DB_TB3+ " set choice = '"+choice+"' WHERE user_id = '"+str(user_id)+"' and date = '"+latest+"';"
-        #sql="update "+REMOTE_DB_TB3+ " set preference1 = '"+preference1+"' WHERE user_id = '"+str(user_id)+"';"
-        c.execute(sql)
-        conn.commit()
-
-        line_bot_api.reply_message(
-                event.reply_token,
-                [
-                    #TextSendMessage(text='https://www.google.com/maps/search/?api=1&query=%E6%9D%B1%E4%BA%AC%E9%A7%85'),
-                    TextSendMessage(text="喫煙はほどほどにね。行ってらっしゃい〜！"),
-                ]
-            )
 
 
 if __name__ == "__main__":
