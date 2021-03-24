@@ -51,10 +51,6 @@ handler = WebhookHandler(YOUR_CHANNEL_SECRET)
 app = Flask(__name__)
 
 
-gobi = {
-    "old" : "です",
-    "young" : "だよ"
-}
 
 #DB情報
 user = "cwlrjhcaaiuokb"
@@ -69,10 +65,10 @@ conn = psycopg2.connect("host=" + server + " port=" + port + " dbname=" + db + "
 conn.rollback()
 #conn = MySQLdb.connect(user=REMOTE_DB_USER, passwd=REMOTE_DB_PASS, host=REMOTE_HOST, db=REMOTE_DB_NAME)
 c = conn.cursor()
-REMOTE_DB_TB = "user_info3"
-REMOTE_DB_TB2 = "smoking"
-REMOTE_DB_TB3 = "user_visit"
-REMOTE_DB_TB4 = "basic_info"
+#REMOTE_DB_TB = "user_info3"
+#REMOTE_DB_TB2 = "smoking"
+REMOTE_DB_TB3 = "user_preference"
+REMOTE_DB_TB4 = "smokingarea_info2"
 #REMOTE_DB_TB3 = "soudan_info"
 #REMOTE_DB_TB4 = "renkei"
 #REMOTE_DB_TB5 = "postalcode"
@@ -105,6 +101,10 @@ def on_messaging(event):
     display_name = profiles.display_name
 
     if text == '電子タバコ' or text == '紙タバコ':
+        sql = "insert into "+REMOTE_DB_TB3+ " values ('"+str(user_id)+"',current_timestamp,'"+text+"');"
+        c.execute(sql)
+        conn.commit()
+
         line_bot_api.reply_message(
                 event.reply_token,
                 [
@@ -125,13 +125,25 @@ def handle_location(event):
     lon = event.message.longitude
     user_id = event.source.user_id
 
-
-    #smoking_areas = search_area(text)
-
+    #今日の気分を確かめる
+    sql = "select MAX(date) from "+REMOTE_DB_TB3+ " WHERE user_id = '"+str(user_id)+"';"
+    c.execute(sql)
+    ret = c.fetchall()
+    latest = str(ret[0][0])
+    sql = "select preference from "+ REMOTE_DB_TB3+" WHERE date ='"+latest+"';" 
+    c.execute(sql)
+    ret = c.fetchall()
+    pref = str(ret[0][0])
+    
+    #今日の気分に該当する喫煙所だけの距離を計
     line_bot_api.reply_message(
             event.reply_token, TextSendMessage(text="近い順番に表示しています！"))
 
-    sql = "select * from "+ REMOTE_DB_TB4+";"
+    if pref == "電子タバコ":
+        sql = "select * from "+ REMOTE_DB_TB4+" where electronic ='あり';"
+    elif pref == "紙タバコ":
+        sql = "select * from "+ REMOTE_DB_TB4+" where paper ='あり';"
+
     c.execute(sql)
     ret = c.fetchall()
     ret_df = pd.DataFrame(ret)
@@ -139,8 +151,11 @@ def handle_location(event):
     dis_d = {}
     hr_d = {}
     dest_d = {}
+    paper_d = {}
+    electro_d = {}
+    style_d = {}
     # (緯度, 経度)
-    for n, h, lt, ln  in zip(ret_df[0], ret_df[1], ret_df[2], ret_df[3]):
+    for n, h, lt, ln, st, pp, el  in zip(ret_df[0], ret_df[1], ret_df[2], ret_df[3], ret_df[4], ret_df[5], ret_df[6]):
         dest = (float(lt), float(ln))
         yourlocation = (lat, lon)
         destination = dest
@@ -151,302 +166,674 @@ def handle_location(event):
         dis_d.update({n:dis})
         hr_d.update({n:h})
         dest_d.update({n:dest})
+        paper_d.update({n:pp})
+        electro_d.update({n:el})
+        style_d.update({n:st})
 
         # 267.9938255019848
     dis_d_sorted = sorted(dis_d.items(), key=lambda x:x[1])
-    dis_d_top5 = dict(dis_d_sorted[0:5])
+    dis_d_top5 = dict(dis_d_sorted[0:10])
     dest_d_top5 = [dest_d[i] for i in dis_d_top5.keys()]
+    hr_d_top5 = [hr_d[i] for i in list(dis_d_top5.keys())]
+    paper_d_top5 = [paper_d[i] for i in dis_d_top5.keys()]
+    electro_d_top5 = [electro_d[i] for i in dis_d_top5.keys()]
+    style_d_top5 = [style_d[i] for i in dis_d_top5.keys()]
 
 
+    link1 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[0][0])+","+str(dest_d_top5[0][1])
+    link2 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[1][0])+","+str(dest_d_top5[1][1])
+    link3 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[2][0])+","+str(dest_d_top5[2][1])
+    link4 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[3][0])+","+str(dest_d_top5[3][1])
+    link5 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[4][0])+","+str(dest_d_top5[4][1])
+    link6 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[5][0])+","+str(dest_d_top5[5][1])
+    link7 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[6][0])+","+str(dest_d_top5[6][1])
+    link8 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[7][0])+","+str(dest_d_top5[7][1])
+    link9 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[8][0])+","+str(dest_d_top5[8][1])
+    link10 = "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[9][0])+","+str(dest_d_top5[9][1])
 
-    carousel_columns = [
-    CarouselColumn(
-        text=value,
-        title=key,
-        actions=[
-            #PostbackTemplateAction(
-            URITemplateAction(
-                label='ここにする',
-                #data=key,
-                uri=address
-            ),
-            PostbackTemplateAction(
-                label='slackに通知する',
-                data="slacking"
-            )
-        ]
-    ) for key, value, address in (
-        zip(
-            #('喫煙所１', '喫煙所２', '喫煙所３', '喫煙所４', '喫煙所５'),
-            #smoking_areas,
-            #('喫煙所１の住所', '喫煙所2の住所', '喫煙所3の住所', '喫煙所4の住所', '喫煙所5の住所'),
-            list(dis_d_top5.keys()),
-            [hr_d[i] for i in list(dis_d_top5.keys())],
-            ("https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[0][0])+","+str(dest_d_top5[0][1]),\
-                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[1][0])+","+str(dest_d_top5[1][1]),\
-                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[2][0])+","+str(dest_d_top5[2][1]),\
-                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[3][0])+","+str(dest_d_top5[3][1]),\
-                "https://www.google.com/maps/dir/?api=1&origin="+str(lat)+","+str(lon)+"&destination="+str(dest_d_top5[4][0])+","+str(dest_d_top5[4][1]),
-            )
-        )
-    )
-    ]
-    message_template = CarouselTemplate(columns=carousel_columns)
-    
-    """
-
-
-    payload = {
+    messages = {
     "type": "carousel",
     "contents": [
         {
         "type": "bubble",
-        "size": "micro",
         "body": {
             "type": "box",
             "layout": "vertical",
+            "spacing": "sm",
             "contents": [
             {
                 "type": "text",
-                "text": "Brown Cafe",
+                "text": list(dis_d_top5.keys())[0],
+                "wrap": True,
                 "weight": "bold",
-                "size": "sm",
-                "wrap": True
+                "size": "xl"
             },
             {
                 "type": "box",
                 "layout": "baseline",
                 "contents": [
                 {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gray_star_28.png"
-                },
-                {
                     "type": "text",
-                    "text": "4.0",
-                    "size": "xs",
-                    "color": "#8c8c8c",
-                    "margin": "md",
+                    "text": hr_d_top5[0],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
                     "flex": 0
                 }
                 ]
             },
             {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                {
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                    {
-                        "type": "text",
-                        "text": "東京旅行",
-                        "wrap": True,
-                        "color": "#8c8c8c",
-                        "size": "xs",
-                        "flex": 5
-                    }
-                    ]
-                }
-                ]
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[0]+" 加熱式"+electro_d_top5[0],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[0],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
             }
-            ],
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
             "spacing": "sm",
-            "paddingAll": "13px"
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link1
+                }
+            }
+            ]
         }
         },
         {
         "type": "bubble",
-        "size": "micro",
         "body": {
             "type": "box",
             "layout": "vertical",
+            "spacing": "sm",
             "contents": [
             {
                 "type": "text",
-                "text": "Brow&Cony's Restaurant",
+                "text": list(dis_d_top5.keys())[1],
+                "wrap": True,
                 "weight": "bold",
-                "size": "sm",
-                "wrap": True
+                "size": "xl"
             },
             {
                 "type": "box",
                 "layout": "baseline",
+                "flex": 1,
                 "contents": [
                 {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gray_star_28.png"
-                },
-                {
                     "type": "text",
-                    "text": "4.0",
-                    "size": "sm",
-                    "color": "#8c8c8c",
-                    "margin": "md",
+                    "text": hr_d_top5[1],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
                     "flex": 0
                 }
                 ]
             },
             {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                {
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                    {
-                        "type": "text",
-                        "text": "東京旅行",
-                        "wrap": True,
-                        "color": "#8c8c8c",
-                        "size": "xs",
-                        "flex": 5
-                    }
-                    ]
-                }
-                ]
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[1]+" 加熱式"+electro_d_top5[1],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[1],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
             }
-            ],
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
             "spacing": "sm",
-            "paddingAll": "13px"
+            "contents": [
+            {
+                "type": "button",
+                "flex": 2,
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを",
+                "uri": link2
+                }
+            }
+            ]
         }
         },
         {
         "type": "bubble",
-        "size": "micro",
         "body": {
             "type": "box",
             "layout": "vertical",
+            "spacing": "sm",
             "contents": [
             {
                 "type": "text",
-                "text": "Tata",
+                "text": list(dis_d_top5.keys())[2],
+                "wrap": True,
                 "weight": "bold",
-                "size": "sm"
+                "size": "xl"
             },
             {
                 "type": "box",
                 "layout": "baseline",
                 "contents": [
                 {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-                },
-                {
-                    "type": "icon",
-                    "size": "xs",
-                    "url": "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gray_star_28.png"
-                },
-                {
                     "type": "text",
-                    "text": "4.0",
-                    "size": "sm",
-                    "color": "#8c8c8c",
-                    "margin": "md",
+                    "text": hr_d_top5[2],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
                     "flex": 0
                 }
                 ]
             },
             {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[2]+" 加熱式"+electro_d_top5[2],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[2],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link3
+                }
+            }
+            ]
+        }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[3],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
                 "type": "box",
-                "layout": "vertical",
+                "layout": "baseline",
                 "contents": [
                 {
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                    {
-                        "type": "text",
-                        "text": "東京旅行",
-                        "wrap": True,
-                        "color": "#8c8c8c",
-                        "size": "xs",
-                        "flex": 5
-                    }
-                    ]
+                    "type": "text",
+                    "text": hr_d_top5[3],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
                 }
                 ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[3]+" 加熱式"+electro_d_top5[3],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[3],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
             }
-            ],
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
             "spacing": "sm",
-            "paddingAll": "13px"
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link4
+                }
+            }
+            ]
         }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[4],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "contents": [
+                {
+                    "type": "text",
+                    "text": hr_d_top5[4],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
+                }
+                ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[4]+" 加熱式"+electro_d_top5[4],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[4],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link5
+                }
+            }
+            ]
         }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[5],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "contents": [
+                {
+                    "type": "text",
+                    "text": hr_d_top5[5],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
+                }
+                ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[5]+" 加熱式"+electro_d_top5[5],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[5],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link6
+                }
+            }
+            ]
+        }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[6],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "contents": [
+                {
+                    "type": "text",
+                    "text": hr_d_top5[6],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
+                }
+                ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[6]+" 加熱式"+electro_d_top5[6],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[6],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link7
+                }
+            }
+            ]
+        }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[7],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "contents": [
+                {
+                    "type": "text",
+                    "text": hr_d_top5[7],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
+                }
+                ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[7]+" 加熱式"+electro_d_top5[7],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[7],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link8
+                }
+            }
+            ]
+        }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[8],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "contents": [
+                {
+                    "type": "text",
+                    "text": hr_d_top5[8],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
+                }
+                ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[8]+" 加熱式"+electro_d_top5[8],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[8],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link9
+                }
+            }
+            ]
+        }
+        },
+        {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "text",
+                "text": list(dis_d_top5.keys())[9],
+                "wrap": True,
+                "weight": "bold",
+                "size": "xl"
+            },
+            {
+                "type": "box",
+                "layout": "baseline",
+                "contents": [
+                {
+                    "type": "text",
+                    "text": hr_d_top5[9],
+                    "wrap": True,
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 0
+                }
+                ]
+            },
+            {
+                "type": "text",
+                "text": "紙巻き"+paper_d_top5[9]+" 加熱式"+electro_d_top5[9],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            },
+            {
+                "type": "text",
+                "text": style_d_top5[9],
+                "wrap": True,
+                "size": "md",
+                "margin": "md",
+                "flex": 0
+            }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+            {
+                "type": "button",
+                "style": "primary",
+                "action": {
+                "type": "uri",
+                "label": "マップを開く",
+                "uri": link10
+                }
+            }
+            ]
+        }
+        },
     ]
     }
-    """
 
-    line_bot_api.push_message(
-        to=user_id,
-        messages=TemplateSendMessage(alt_text='carousel template', template=message_template)
-    )
-    #container_obj = FlexSendMessage.new_from_json_dict(payload)
-    #line_bot_api.push_message(user_id, messages=container_obj)
-
-
+    #f = open('./template.json', 'r')
+    #messages = json.load(f)
+    messages = FlexSendMessage(alt_text="options", contents=messages)
+    #メッセージ送信
+    line_bot_api.push_message(user_id, messages=messages)
 
 #######################################################
 
@@ -471,7 +858,7 @@ def handle_postback(event):
 """
     elif event.postback.data == '喫煙所１' or event.postback.data == '喫煙所２' or event.postback.data == '喫煙所３'\
             or event.postback.data == '喫煙所４' or event.postback.data == '喫煙所５':
-    #elif event.postback.label == "ここにする":
+    #elif event.postback.label == "マップを開く":
         choice = event.postback.data
 
         sql = "select MAX(date) from "+REMOTE_DB_TB3+ " WHERE user_id = '"+str(user_id)+"';"
